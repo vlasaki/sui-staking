@@ -3,9 +3,11 @@ module staking::staking_calc;
 use sui::table::{Self, Table};
 
 //=== Constants ===//
+
 const SCALE: u64 = 1_000_000;
 
 //=== Error codes ===//
+
 const ENullStake: u64 = 0;
 const ENullWithdraw: u64 = 1;
 const ENotEnoughFunds: u64 = 2;
@@ -44,34 +46,38 @@ public(package) fun create_pool_state(reward_rate: u64, ctx: &mut TxContext): Po
 
 //=== Public functions ===//
 
+/// Internal stake calculation
 public(package) fun stake(pool_state: &mut PoolState, user: address, amount: u64, now: u64): u64 {
     assert!(amount > 0, ENullStake);
+
     //calculate reward
     let user_reward = pool_state.calculate_reward(user, now);
+
     //update balances
     let user_balance = pool_state.user_balances.borrow_mut(user);
     *user_balance = *user_balance + amount;
     pool_state.total_supply = pool_state.total_supply + amount;
     //update last updated ts
     pool_state.last_update_ts = now;
-
+    //return reward
     user_reward
 }
 
+/// Internal withdraw calculation
 public(package) fun withdraw(pool_state: &mut PoolState, user: address, amount: u64, now: u64): u64 {
     assert!(amount > 0, ENullWithdraw);
-    assert!pool_state.user_balances.contains(user) && pool_state.user_balances[user] >= amount,
-        ENotEnoughFunds,
-    );
+    assert!(pool_state.user_balances.contains(user) && pool_state.user_balances[user] >= amount, ENotEnoughFunds);
+
     //calculate reward
     let user_reward = pool_state.calculate_reward(user, now);
+
     //update balances
     let user_balance = pool_state.user_balances.borrow_mut(user);
     *user_balance = *user_balance - amount;
     pool_state.total_supply = pool_state.total_supply - amount;
     //update last updated ts
     pool_state.last_update_ts = now;
-
+    //return reward
     user_reward
 }
 
@@ -82,31 +88,28 @@ fun calculate_reward(pool_state: &mut PoolState, user: address, now: u64): u64 {
     if (first_time_called) {
         pool_state.last_update_ts = now;
     };
-
     //calculate reward per token stored
     let dt = now - pool_state.last_update_ts;
     let reward_rate = pool_state.reward_rate;
     let total_supply = pool_state.total_supply;
     let reward_per_token_stored = &mut pool_state.reward_per_token_stored;
     if (total_supply > 0) {
-        *reward_per_token_stored =
-            *reward_per_token_stored + (reward_rate * dt * SCALE) / total_supply;
+        *reward_per_token_stored = *reward_per_token_stored + (reward_rate * dt * SCALE) / total_supply;
     };
 
     //calculate user reward and set state
-    //set state for the first time
+    //initialize state the first time
     if (!pool_state.user_balances.contains(user)) {
         pool_state.user_balances.add(user, 0);
         pool_state.user_rewards.add(user, 0);
         pool_state.user_rewards_per_token_paid.add(user, *reward_per_token_stored);
     }
-    //update state
+    //update state subsequent times
     else {
         let paid = pool_state.user_rewards_per_token_paid[user];
         let delta_reward_per_token = *reward_per_token_stored - paid;
         let user_reward = pool_state.user_rewards.borrow_mut(user);
-        *user_reward =
-            *user_reward + (pool_state.user_balances[user] * delta_reward_per_token) / SCALE;
+        *user_reward = *user_reward + (pool_state.user_balances[user] * delta_reward_per_token) / SCALE;
         let user_rewards_per_token_paid = pool_state.user_rewards_per_token_paid.borrow_mut(user);
         *user_rewards_per_token_paid = *reward_per_token_stored;
     };
